@@ -2,34 +2,12 @@
 =============================================================================================
 Name:           Audit Office 365 external sharing activities report
 Description:    This script exports Office 365 external sharing activities to CSV
-Version:        3.0
+Version:        1.0
 Website:        o365reports.com
-
-Change Log
-~~~~~~~~~~
-
-    V1   (20/5/21) - Initial version 
-    V2   (22/5/21) - Description update
-    V2.1 (26/9/23) - Minor changes
-    V3 (9/18/24) - Added support for certificate-based authentication and extended audit log retrieval perid from 90 to 180 days 
-
-
-Script Highlights: 
-~~~~~~~~~~~~~~~~~
-1.The script generates external sharing report for the last 180 days.  
-2.Allows you to generate an external sharing report for a custom period. 
-3.Tracks external sharing in SharePoint Online separately.
-4.Tracks external sharing in OneDrive separately
-5.Exports report results to CSV file.
-6.Automatically installs the EXO PowerShell module (if not installed already) upon your confirmation.     
-7.The script can be executed with MFA enabled account too. 
-8.Supports Certificate-based Authentication (CBA) too.   
-9.The script is scheduler-friendly.
-
+Script by:      O365Reports Team
 For detailed script execution: https://o365reports.com/2021/05/20/audit-sharepoint-online-external-sharing-using-powershell
 ============================================================================================
 #>
-
 Param
 (
     [Parameter(Mandatory = $false)]
@@ -37,28 +15,58 @@ Param
     [Nullable[DateTime]]$EndDate,
     [switch]$SharePointOnline,
     [switch]$OneDrive,
-    [string]$Organization,
-    [string]$ClientId,
-    [string]$CertificateThumbprint,
     [string]$AdminName,
     [string]$Password
 )
 
-$MaxStartDate=((Get-Date).AddDays(-179)).Date
+Function Connect_Exo
+{
+ #Check for EXO v2 module inatallation
+ $Module = Get-Module ExchangeOnlineManagement -ListAvailable
+ if($Module.count -eq 0) 
+ { 
+  Write-Host Exchange Online PowerShell V2 module is not available  -ForegroundColor yellow  
+  $Confirm= Read-Host Are you sure you want to install module? [Y] Yes [N] No 
+  if($Confirm -match "[yY]") 
+  { 
+   Write-host "Installing Exchange Online PowerShell module"
+   Install-Module ExchangeOnlineManagement -Repository PSGallery -AllowClobber -Force
+  } 
+  else 
+  { 
+   Write-Host EXO V2 module is required to connect Exchange Online.Please install module using Install-Module ExchangeOnlineManagement cmdlet. 
+   Exit
+  }
+ } 
+ Write-Host Connecting to Exchange Online...
+ #Storing credential in script for scheduling purpose/ Passing credential as parameter - Authentication using non-MFA account
+ if(($AdminName -ne "") -and ($Password -ne ""))
+ {
+  $SecuredPassword = ConvertTo-SecureString -AsPlainText $Password -Force
+  $Credential  = New-Object System.Management.Automation.PSCredential $AdminName,$SecuredPassword
+  Connect-ExchangeOnline -Credential $Credential
+ }
+ else
+ {
+  Connect-ExchangeOnline
+ }
+}
 
+$MaxStartDate=((Get-Date).AddDays(-89)).Date
 
-#Retrive audit log for the past 180 days
+#Getting external user file access for past 90 days
 if(($StartDate -eq $null) -and ($EndDate -eq $null))
 {
  $EndDate=(Get-Date).Date
  $StartDate=$MaxStartDate
 }
-#Getting start date to audit export report
+
+#Getting start date to generate external sharing report
 While($true)
 {
  if ($StartDate -eq $null)
  {
-  $StartDate=Read-Host Enter start time for report generation '(Eg:12/15/2023)'
+  $StartDate=Read-Host Enter start time for report generation '(Eg:04/28/2021)'
  }
  Try
  {
@@ -69,7 +77,7 @@ While($true)
   }
   else
   {
-   Write-Host `nAudit can be retrieved only for the past 180 days. Please select a date after $MaxStartDate -ForegroundColor Red
+   Write-Host `nExternal sharing report can be retrieved only for past 90 days. Please select a date after $MaxStartDate -ForegroundColor Red
    return
   }
  }
@@ -80,12 +88,12 @@ While($true)
 }
 
 
-#Getting end date to export audit report
+#Getting end date to generate external sharing report
 While($true)
 {
  if ($EndDate -eq $null)
  {
-  $EndDate=Read-Host Enter End time for report generation '(Eg: 12/15/2023)'
+  $EndDate=Read-Host Enter End time for report generation '(Eg: 04/28/2021)'
  }
  Try
  {
@@ -103,46 +111,7 @@ While($true)
  }
 }
 
-
-Function Connect_Exo
-{
- #Check for EXO module inatallation
- $Module = Get-Module ExchangeOnlineManagement -ListAvailable
- if($Module.count -eq 0) 
- { 
-  Write-Host Exchange Online PowerShell  module is not available  -ForegroundColor yellow  
-  $Confirm= Read-Host Are you sure you want to install module? [Y] Yes [N] No 
-  if($Confirm -match "[yY]") 
-  { 
-   Write-host "Installing Exchange Online PowerShell module"
-   Install-Module ExchangeOnlineManagement -Repository PSGallery -AllowClobber -Force
-  } 
-  else 
-  { 
-   Write-Host EXO module is required to connect Exchange Online.Please install module using Install-Module ExchangeOnlineManagement cmdlet. 
-   Exit
-  }
- } 
- Write-Host Connecting to Exchange Online...
- #Storing credential in script for scheduling purpose/ Passing credential as parameter - Authentication using non-MFA account
- if(($UserName -ne "") -and ($Password -ne ""))
- {
-  $SecuredPassword = ConvertTo-SecureString -AsPlainText $Password -Force
-  $Credential  = New-Object System.Management.Automation.PSCredential $UserName,$SecuredPassword
-  Connect-ExchangeOnline -Credential $Credential -ShowBanner:$false
- }
- elseif($Organization -ne "" -and $ClientId -ne "" -and $CertificateThumbprint -ne "")
- {
-   Connect-ExchangeOnline -AppId $ClientId -CertificateThumbprint $CertificateThumbprint  -Organization $Organization -ShowBanner:$false
- }
- else
- {
-  Connect-ExchangeOnline -ShowBanner:$false
- }
-}
-
-$Location=Get-Location
-$OutputCSV="$Location\ExternalSharingReport_$((Get-Date -format yyyy-MMM-dd-ddd` hh-mm` tt).ToString()).csv" 
+$OutputCSV=".\ExternalSharingReport_$((Get-Date -format yyyy-MMM-dd-ddd` hh-mm` tt).ToString()).csv" 
 $IntervalTimeInMinutes=1440    #$IntervalTimeInMinutes=Read-Host Enter interval time period '(in minutes)'
 $CurrentStart=$StartDate
 $CurrentEnd=$CurrentStart.AddMinutes($IntervalTimeInMinutes)
@@ -278,10 +247,7 @@ else
  Write-Host `nThe output file contains $OutputEvents audit records
  if((Test-Path -Path $OutputCSV) -eq "True") 
  {
-  Write-Host `n The Output file availble in: -NoNewline -ForegroundColor Yellow
-  Write-Host $OutputCSV 
-  Write-Host `n~~ Script prepared by AdminDroid Community ~~`n -ForegroundColor Green
-  Write-Host "~~ Check out " -NoNewline -ForegroundColor Green; Write-Host "admindroid.com" -ForegroundColor Yellow -NoNewline; Write-Host " to get access to 1800+ Microsoft 365 reports. ~~" -ForegroundColor Green `n`n
+  Write-Host `nThe Output file availble in $OutputCSV -ForegroundColor Green
   $Prompt = New-Object -ComObject wscript.shell   
   $UserInput = $Prompt.popup("Do you want to open output file?",`   
  0,"Open Output File",4)   
